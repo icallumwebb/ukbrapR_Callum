@@ -160,16 +160,19 @@ create_pgs <- function(
   #
   # create PGS
 
-    # replace user-provided `rsid` with the actual variant ID used by plink2 (either rsid from BIM or SNPID from PVAR/BGEN)
+    # replace user-provided `rsid` with internal IDs only when needed (e.g. DRAGEN-like IDs).
+    # For imputed data, keeping user-supplied RSIDs gives much better match rates and mirrors
+    # the original ukbrapR behavior.
 
     varlist$rsid_old <- varlist$rsid
+    need_id_remap <- identical(source, "dragen")
 
-    if (is_bed)  {
+    if (need_id_remap && is_bed)  {
 
       # BED path: read the BIM file and match by CHR, POS, and alleles
       varinfo <- readr::read_tsv(stringr::str_c(geno_path, ".bim"), col_names=c("chr","id","null","pos","a1","a2"), progress=FALSE, show_col_types=FALSE)
 
-    } else {
+    } else if (need_id_remap) {
 
       # BGEN path: use plink2 to write a PGEN (which includes a .pvar variant info file)
       # and match by CHR, POS, and alleles. We use --make-pgen for compatibility with
@@ -202,7 +205,7 @@ create_pgs <- function(
     }
 
     # create ID for each row of the varlist - make sure alleles match
-    for (ii in 1:nrow(varlist))  {
+    if (need_id_remap) for (ii in 1:nrow(varlist))  {
 
       # keep rows where CHR and POS match
       r <- varinfo[ varinfo$chr==varlist$chr[ii] & varinfo$pos==varlist$pos[ii] , ]
@@ -234,7 +237,7 @@ create_pgs <- function(
     if (is_bed)  {
       c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     } else {
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     }
     if (very_verbose)  {
       system(c1)
