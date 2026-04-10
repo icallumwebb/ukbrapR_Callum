@@ -56,11 +56,28 @@ load_bgen <- function(
 	# PLINK RAW files are whitespace-delimited (tabs or spaces)
 	geno_df <- utils::read.table("_ukbrapr_tmp.raw", header=TRUE, sep="", check.names=FALSE, stringsAsFactors=FALSE)
 	names(geno_df)[1] <- "eid"   # plink2 writes "#FID" as first column name
+
+	# Convert allele counts to ALT-allele perspective for columns named like
+	# CHR:POS:REF:ALT_COUNTEDALLELE (e.g., 8:128074815:A:G_A). When counted allele
+	# equals REF, ALT dosage is 2 - REF dosage, and the suffix is renamed to ALT.
+	metadata_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENO", "PHENOTYPE", "eid")
+	geno_cols <- setdiff(names(geno_df), metadata_cols)
+	for (col in geno_cols)  {
+		m <- stringr::str_match(col, "^([^:]+):([^:]+):([^:]+):([^_]+)_([^_]+)$")
+		if (!is.na(m[1,1]))  {
+			ref_allele <- m[1,4]
+			alt_allele <- m[1,5]
+			counted_allele <- m[1,6]
+			if (counted_allele == ref_allele)  {
+				geno_df[[col]] <- 2 - geno_df[[col]]
+				names(geno_df)[names(geno_df) == col] <- stringr::str_c(m[1,2], ":", m[1,3], ":", ref_allele, ":", alt_allele, "_", alt_allele)
+			}
+		}
+	}
 	
 	# For multi-allelic variants, plink2 may generate duplicate column names (e.g., both alt alleles
 	# named "rs72725854_A"). Repair these before dplyr::select() which requires unique names.
 	# Only apply to genotype columns (skip metadata FID/IID/PAT/MAT/SEX/PHENO columns).
-	metadata_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENO", "PHENOTYPE", "eid")
 	geno_col_idx <- which(!(names(geno_df) %in% metadata_cols))
 	if (length(geno_col_idx) > 0 && anyDuplicated(names(geno_df)[geno_col_idx]) > 0)  {
 		new_names <- names(geno_df)
