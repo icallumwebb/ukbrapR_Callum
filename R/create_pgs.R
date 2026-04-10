@@ -193,7 +193,9 @@ create_pgs <- function(
     #   extracted variants do not retain user RSIDs as plink2 scoring IDs.
 
     varlist$rsid_old <- varlist$rsid
-    need_id_remap <- identical(source, "dragen") || (!is_bed && identical(source, "imputed") && isTRUE(use_imp_pos))
+    # For BGEN input, always remap against the extracted genotype IDs and then score
+    # from that same temporary pfile to avoid ID drift/mismatch.
+    need_id_remap <- !is_bed
 
     if (need_id_remap && is_bed)  {
 
@@ -235,6 +237,7 @@ create_pgs <- function(
     if (need_id_remap) {
 
       comp_allele <- c(A="T", T="A", C="G", G="C")
+      n_id_match <- 0
       n_exact_match <- 0
       n_comp_match <- 0
       n_pos_fallback <- 0
@@ -253,6 +256,16 @@ create_pgs <- function(
 
         ea <- varlist$effect_allele[ii]
         oa <- varlist$other_allele[ii]
+
+        # 0) direct ID match (most reliable when rsid exists in BGEN IDs)
+        r_id <- r[r$id == varlist$rsid_old[ii], , drop=FALSE]
+        if (nrow(r_id) > 0)  {
+          r_pick <- r_id
+          if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
+          varlist$rsid[ii] <- r_pick$id[1]
+          n_id_match <- n_id_match + 1
+          next
+        }
 
         # 1) exact allele-set match
         r_exact <- r[ r$a1 %in% c(ea, oa) & r$a2 %in% c(ea, oa) , ]
@@ -289,7 +302,7 @@ create_pgs <- function(
 
       if (verbose)  {
         n_mapped <- sum(varlist$rsid != varlist$rsid_old, na.rm=TRUE)
-        cli::cli_alert_info("ID mapping summary: exact={n_exact_match}, strand-flip={n_comp_match}, pos-fallback={n_pos_fallback}, unmatched={n_unmatched}")
+        cli::cli_alert_info("ID mapping summary: id-match={n_id_match}, exact={n_exact_match}, strand-flip={n_comp_match}, pos-fallback={n_pos_fallback}, unmatched={n_unmatched}")
         cli::cli_alert_info("Mapped {n_mapped} of {nrow(varlist)} score IDs to genotype IDs")
       }
 
