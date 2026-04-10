@@ -1,6 +1,6 @@
 #' Create a polygenic score
 #'
-#' @description Use user-provided list of genetic variants with weights for a trait to create a polygenic score. Uses the imputed BGEN files (field 22828) or WGS DRAGEN BGEN files (field 24309) data and load as data.frame
+#' @description Use a user-provided list of genetic variants with weights for a trait to create a polygenic score. Uses the imputed BGEN files (field 22828) or WGS DRAGEN BGEN files (field 24309).
 #'
 #' Uses plink2 to create the score (https://www.cog-genomics.org/plink/2.0/score). The returned score is the sum of the effect alleles weighted by the provided beta coefficients, divided by the number of non-missing alleles (i.e. the average score per allele).
 #'
@@ -17,13 +17,13 @@
 #'        \code{default="tmp"}
 #' @param pgs_name A string. Variable name for created PGS (optional)
 #'        \code{default="pgs"}
-#' @param source A string. Either "imputed" or "dragen" - indicating whether the variants should be from "UKB imputation from genotype" (field 22828) or "DRAGEN population level WGS variants, PLINK format [500k release]" (field 24308). Can instead be a path to a local BED file, if `is_bed=TRUE`.
+#' @param source A string. Either "imputed" or "dragen" - indicating whether the variants should be from "UKB imputation from genotype" (field 22828) or "DRAGEN population level WGS variants, BGEN format [500k release]" (field 24309). Can instead be a path to a local BED file, if `is_bed=TRUE`.
 #'        \code{default="imputed"}
 #' @param use_imp_pos Logical. If source imputed, use position instead of rsID to extract variants?,
 #'        \code{default=FALSE}
 #' @param is_bed Logical. If you already have a BED file containing the required variants set this to TRUE and provide a path to the BED file in the `source` option,
 #'        \code{default=FALSE}
-#' @param overwrite Logical. Overwrite output BED files? (If out_file is left as 'tmp' overwrite is set to TRUE),
+#' @param overwrite Logical. Overwrite output genotype files? (If out_file is left as 'tmp' overwrite is set to TRUE). When `is_bed=FALSE`, this controls overwriting output BGEN files.
 #'        \code{default=FALSE}
 #' @param progress Logical. Show progress through each individual file,
 #'        \code{default=FALSE}
@@ -80,21 +80,21 @@ create_pgs <- function(
   if (verbose) cli::cli_alert("Checking inputs")
 
   # local BED?
-  bed_path <- NULL
+  geno_path <- NULL
   if (is_bed)  {
 
-    bed_path <- source
+    geno_path <- source
 
     # have .bed suffix? If so, remove
-    if (stringr::str_ends(bed_path, ".bed"))  bed_path <- stringr::str_sub(bed_path, end = -5)
+    if (stringr::str_ends(geno_path, ".bed"))  geno_path <- stringr::str_sub(geno_path, end = -5)
 
     # check exists:
-    if (! file.exists(stringr::str_c(bed_path, ".bed")))  cli::cli_abort("Local BED file not found")
+    if (! file.exists(stringr::str_c(geno_path, ".bed")))  cli::cli_abort("Local BED file not found")
     if (verbose) cli::cli_alert("Local BED file found")
 
     # is it DRAGEN format? see if .bim only contains "chr" IDs (no rsIDs)
     source <- "imputed"
-    bim <- readr::read_tsv(stringr::str_c(bed_path, ".bim"), col_names=c("chr","id","null","pos","a1","a2"), progress=FALSE, show_col_types=FALSE)
+    bim <- readr::read_tsv(stringr::str_c(geno_path, ".bim"), col_names=c("chr","id","null","pos","a1","a2"), progress=FALSE, show_col_types=FALSE)
     if ( all( stringr::str_detect(bim$id, "chr") ) )  source <- "dragen"
 
   }  else  {
@@ -102,7 +102,7 @@ create_pgs <- function(
     # imputed or dragen?
     if (! source %in% c("imputed","dragen"))  cli::cli_abort("{.var source} must be either \"imputed\" or \"dragen\"")
 
-    bed_path <- out_file
+    geno_path <- out_file
   }
 
   # load user-provided varlist file (only first two TSV cols are used: must be chr, bp)
@@ -137,65 +137,94 @@ create_pgs <- function(
   if (! class(out_file)=="character")  cli::cli_abort("Output file prefix needs to be a character string")
   if (length(out_file)>1)  cli::cli_abort("Output file prefix needs to be length 1")
   if (out_file=="tmp")  overwrite <- TRUE
-  if (file.exists(paste0(out_file,".bed")) & !overwrite)  cli::cli_abort("Output bed already exists. To overwrite, set option `overwrite=TRUE`")
+  if (!is_bed & file.exists(paste0(out_file,".bgen")) & !overwrite)  cli::cli_abort("Output BGEN already exists. To overwrite, set option `overwrite=TRUE`")
 
   #
   #
-  # make bed -- if BED provided then just check plink2 is available
-  if (!is_bed & source == "imputed")  ukbrapR::make_imputed_bed(in_file=varlist, out_bed=out_file, use_pos=use_imp_pos, progress=progress, verbose=verbose, very_verbose=very_verbose)
-  if (!is_bed & source == "dragen")   ukbrapR::make_dragen_bed(in_file=varlist, out_bed=out_file, progress=progress, verbose=verbose, very_verbose=very_verbose)
+  # prepare genotype files -- if local BED provided then just check plink2 is available
+    if (!is_bed & source == "imputed")  ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=use_imp_pos, progress=progress, verbose=verbose, very_verbose=very_verbose)
+    if (!is_bed & source == "dragen")   ukbrapR::make_dragen_bgen(in_file=varlist, out_bgen=geno_path, progress=progress, verbose=verbose, very_verbose=very_verbose)
   if (is_bed)  ukbrapR:::prep_tools(get_plink=FALSE, get_plink2=TRUE, get_bgen=FALSE, verbose=verbose, very_verbose=very_verbose)
 
 
   # did it work?
-  if (! file.exists(stringr::str_c(bed_path, ".bed")))  cli::cli_abort("Failed to make the BED. Try with `very_verbose=TRUE` to see terminal output.")
+  if ( is_bed & ! file.exists(stringr::str_c(geno_path, ".bed")))   cli::cli_abort("Local BED file not found. Try with `very_verbose=TRUE` to see terminal output.")
+  if (!is_bed & ! file.exists(stringr::str_c(geno_path, ".bgen")))  cli::cli_abort("Failed to make the BGEN. Try with `very_verbose=TRUE` to see terminal output.")
 
   #
   #
   # create PGS
 
-  # replace user provided `rsid` with the variant id in the bim file (either `rsid` or `chr:pos:a1:a2` depending on source)
+    # replace user-provided `rsid` with the actual variant ID used by plink2 (either rsid from BIM or SNPID from PVAR/BGEN)
 
-  # load the bim file
-  bim <- readr::read_tsv(stringr::str_c(bed_path, ".bim"), col_names=c("chr","id","null","pos","a1","a2"), progress=FALSE, show_col_types=FALSE)
+    varlist$rsid_old <- varlist$rsid
 
-  # create ID for each row of the varlist - make sure alleles match the bim file
-  varlist$rsid_old <- varlist$rsid
-  for (ii in 1:nrow(varlist))  {
+    if (is_bed)  {
 
-    # keep bim rows where CHR and POS match
-    r <- bim[ bim$chr==varlist$chr[ii] & bim$pos==varlist$pos[ii] , ]
+      # BED path: read the BIM file and match by CHR, POS, and alleles
+      varinfo <- readr::read_tsv(stringr::str_c(geno_path, ".bim"), col_names=c("chr","id","null","pos","a1","a2"), progress=FALSE, show_col_types=FALSE)
 
-    # any matched?
-    if (nrow(r)>0)  {
+    } else {
 
-      # keep rows where alleles both genotyped
-      r <- r[ r$a1 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) & r$a2 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) , ]
+      # BGEN path: use plink2 to write a PVAR (variant info file) and match by CHR, POS, and alleles
+      if (verbose) cli::cli_alert("Getting variant info from BGEN")
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --make-pvar --out _ukbrapr_tmp_pvar")
+      if (very_verbose)  {
+        system(c1)
+      } else {
+        system(stringr::str_c(c1, " >/dev/null"))
+      }
+      # PVAR header: ##fileformat=PARvX.X then #CHROM POS ID REF ALT
+      # read_tsv with comment="##" skips the ##fileformat line; #CHROM becomes the first column name
+      varinfo_raw <- readr::read_tsv("_ukbrapr_tmp_pvar.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
+      varinfo <- varinfo_raw |>
+        dplyr::rename(id=ID, pos=POS, a1=REF, a2=ALT) |>
+        dplyr::mutate(chr=as.integer(stringr::str_remove(as.character(.data[[names(varinfo_raw)[1]]]), "^chr"))) |>
+        dplyr::select(chr, id, pos, a1, a2)
+      system("rm -f _ukbrapr_tmp_pvar*")
+
+    }
+
+    # create ID for each row of the varlist - make sure alleles match
+    for (ii in 1:nrow(varlist))  {
+
+      # keep rows where CHR and POS match
+      r <- varinfo[ varinfo$chr==varlist$chr[ii] & varinfo$pos==varlist$pos[ii] , ]
 
       # any matched?
       if (nrow(r)>0)  {
 
-        # add `id` to varlist
-        # if multiple (shouldn't be!) just use first
-        varlist$rsid[ii] <- r$id[1]
+        # keep rows where both alleles are genotyped
+        r <- r[ r$a1 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) & r$a2 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) , ]
+
+        # any matched?
+        if (nrow(r)>0)  {
+
+          # update rsid to match plink2's internal variant ID
+          # if multiple (shouldn't be!) use first
+          varlist$rsid[ii] <- r$id[1]
+
+        }
 
       }
 
     }
-
-  }
 
   # save the varlist for plink
   readr::write_tsv(varlist, out_file_varlist, progress=FALSE)
 
   # Plink
   if (verbose) cli::cli_alert("Make PGS")
-  c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", bed_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
-  if (very_verbose)  {
-    system(c1)
-  } else {
-    system(stringr::str_c(c1, " >/dev/null"))
-  }
+    if (is_bed)  {
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+    } else {
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+    }
+    if (very_verbose)  {
+      system(c1)
+    } else {
+      system(stringr::str_c(c1, " >/dev/null"))
+    }
 
   # did it work?
   if (! file.exists(stringr::str_c(out_file, ".sscore")))  cli::cli_abort("Plink failed to make the allele score. Try with `very_verbose=TRUE` to see terminal output.")

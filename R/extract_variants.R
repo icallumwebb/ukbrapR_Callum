@@ -1,6 +1,6 @@
 #' Extract variants from bulk data and load to memory
 #'
-#' @description Use user-provided list of genetic variants to extract from imputed BGEN files (field 22828) or WGS DRAGEN BGEN files (field 24309) data and load as data.frame
+#' @description Use user-provided list of genetic variants to extract from imputed BGEN files (field 22828) or WGS DRAGEN BGEN files (field 24309), and load as a data.frame.
 #'
 #' If selecting the DRAGEN data as the source, this assumes your project has access to the WGS BGEN files released April 2025. If not, run `ukbrapR:::make_dragen_bed_from_pvcfs()` to use [tabix] and [plink] to subset the [DRAGEN WGS pVCF files].
 #'
@@ -11,13 +11,13 @@
 #' @name extract_variants
 #'
 #' @param in_file A data frame or file path. Contains rsid, chr, and pos. For imputed genos pos is build 37. For DRAGEN pos is build 38. Other columns are ignored.
-#' @param out_bed A string. Prefix for output files (optional)
+#' @param out_bed A string. Prefix for output files (optional). Legacy name retained for compatibility; output is written as `.bgen` + `.sample`.
 #'        \code{default="tmp"}
-#' @param source A string. Either "imputed" or "dragen" - indicating whether the variants should be from "UKB imputation from genotype" (field 22828) or "DRAGEN population level WGS variants, PLINK format [500k release]" (field 24308)
+#' @param source A string. Either "imputed" or "dragen" - indicating whether the variants should be from "UKB imputation from genotype" (field 22828) or "DRAGEN population level WGS variants, BGEN format [500k release]" (field 24309)
 #'        \code{default="imputed"}
 #' @param use_imp_pos Logical. If source imputed, use position instead of rsID to extract variants?,
 #'        \code{default=FALSE}
-#' @param overwrite Logical. Overwrite output BED files? (If output prefix is left as 'tmp' overwrite is set to TRUE),
+#' @param overwrite Logical. Overwrite output BGEN files? (If output prefix is left as 'tmp' overwrite is set to TRUE),
 #'        \code{default=FALSE}
 #' @param progress Logical. Show progress through each individual file,
 #'        \code{default=FALSE}
@@ -90,26 +90,26 @@ extract_variants <- function(
 	if (! class(out_bed)=="character")  cli::cli_abort("Output file prefix needs to be a character string")
 	if (length(out_bed)>1)  cli::cli_abort("Output file prefix needs to be length 1")
 	if (out_bed=="tmp")  overwrite <- TRUE
-	if (file.exists(paste0(out_bed,".bed")) & !overwrite)  cli::cli_abort("Output bed already exists. To overwrite, set option `overwrite=TRUE`")
+	if (file.exists(paste0(out_bed,".bgen")) & !overwrite)  cli::cli_abort("Output BGEN already exists. To overwrite, set option `overwrite=TRUE`")
 
 	#
 	#
-	# make bed
-	if (source == "imputed")  ukbrapR::make_imputed_bed(in_file=varlist, out_bed=out_bed, use_pos=use_imp_pos, progress=progress, verbose=verbose, very_verbose=very_verbose)
-	if (source == "dragen")   ukbrapR::make_dragen_bed(in_file=varlist, out_bed=out_bed, progress=progress, verbose=verbose, very_verbose=very_verbose)
+	# make bgen
+	if (source == "imputed")  ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=out_bed, use_pos=use_imp_pos, progress=progress, verbose=verbose, very_verbose=very_verbose)
+	if (source == "dragen")   ukbrapR::make_dragen_bgen(in_file=varlist, out_bgen=out_bed, progress=progress, verbose=verbose, very_verbose=very_verbose)
 
 	# did it work?
-	if (! file.exists(stringr::str_c(out_bed, ".bed")))  cli::cli_abort("Failed to make the BED. Try with `very_verbose=TRUE` to see terminal output.")
+	if (! file.exists(stringr::str_c(out_bed, ".bgen")))  cli::cli_abort("Failed to make the BGEN. Try with `very_verbose=TRUE` to see terminal output.")
 
-	# load bed
-	bed <- ukbrapR::load_bed(in_bed=out_bed, verbose=verbose, very_verbose=very_verbose)
+	# load genotype data
+	geno_df <- ukbrapR::load_bgen(in_bgen=out_bed, verbose=verbose, very_verbose=very_verbose)
 
 	#
 	#
 	# finished
-	cli::cli_alert_success(c("Loaded data from {ncol(bed)-1} variants."))
+	cli::cli_alert_success(c("Loaded data from {ncol(geno_df)-1} variants."))
 	if (verbose) cli::cli_alert_info(c("Time taken: ", "{prettyunits::pretty_sec(as.numeric(difftime(Sys.time(), start_time, units=\"secs\")))}."))
 
-	return(bed)
+	return(geno_df)
 
 }
