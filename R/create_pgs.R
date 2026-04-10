@@ -161,27 +161,55 @@ create_pgs <- function(
   # create PGS
 
     # Safety fallback for imputed data: if position-based extraction yields very few variants,
-    # retry extraction by RSID. This usually indicates position build mismatch in the score file.
+    # retry extraction by RSID. If still low, resolve UKB-specific RSIDs from MFI metadata
+    # and retry extraction with those IDs.
     if (!is_bed && identical(source, "imputed") && isTRUE(use_imp_pos))  {
 
-      if (verbose) cli::cli_alert("Checking number of variants extracted with position-based lookup")
-      c_check <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --make-pgen --out _ukbrapr_tmp_check")
-      if (very_verbose)  {
-        system(c_check)
-      } else {
-        system(stringr::str_c(c_check, " >/dev/null"))
+      count_extracted_variants <- function(bgen_prefix) {
+        c_check <- paste0("~/_ukbrapr_tools/plink2 --bgen ", bgen_prefix, ".bgen ref-first --sample ", bgen_prefix, ".sample --make-pgen --out _ukbrapr_tmp_check")
+        if (very_verbose)  {
+          system(c_check)
+        } else {
+          system(stringr::str_c(c_check, " >/dev/null"))
+        }
+        n_extracted_local <- 0
+        if (file.exists("_ukbrapr_tmp_check.pvar"))  {
+          pvar_check <- readr::read_tsv("_ukbrapr_tmp_check.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
+          n_extracted_local <- nrow(pvar_check)
+        }
+        system("rm -f _ukbrapr_tmp_check*")
+        return(n_extracted_local)
       }
 
-      n_extracted <- 0
-      if (file.exists("_ukbrapr_tmp_check.pvar"))  {
-        pvar_check <- readr::read_tsv("_ukbrapr_tmp_check.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
-        n_extracted <- nrow(pvar_check)
-      }
-      system("rm -f _ukbrapr_tmp_check*")
+      if (verbose) cli::cli_alert("Checking number of variants extracted with position-based lookup")
+      n_extracted <- count_extracted_variants(geno_path)
 
       if (n_extracted < (0.5 * nrow(varlist)))  {
         cli::cli_warn("Only {n_extracted} of {nrow(varlist)} variants were extracted using position-based lookup. Retrying extraction using RSIDs.")
         ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=FALSE, progress=progress, verbose=verbose, very_verbose=very_verbose)
+
+        n_extracted_rsid <- count_extracted_variants(geno_path)
+
+        if (n_extracted_rsid < (0.5 * nrow(varlist)))  {
+          cli::cli_warn("RSID retry still only extracted {n_extracted_rsid} of {nrow(varlist)} variants. Trying UKB RSID mapping from MFI metadata.")
+
+          # Try to resolve rsids to UKB-specific IDs using CHR/POS, then re-extract by rsID
+          varlist_map <- varlist |> dplyr::select(rsid, chr, pos)
+          mapped_info <- ukbrapR::get_imputed_variant_info(varlist=varlist_map, verbose=FALSE)
+          mapped_info <- mapped_info |>
+            dplyr::mutate(ukb_rsid=dplyr::na_if(ukb_rsid, ""))
+
+          # keep original IDs where no UKB mapping is available
+          varlist <- varlist |>
+            dplyr::left_join(mapped_info |> dplyr::select(chr, pos, ukb_rsid), by=c("chr","pos")) |>
+            dplyr::mutate(rsid=dplyr::coalesce(ukb_rsid, rsid)) |>
+            dplyr::select(-ukb_rsid)
+
+          ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=FALSE, progress=progress, verbose=verbose, very_verbose=very_verbose)
+          n_extracted_ukb <- count_extracted_variants(geno_path)
+          if (verbose) cli::cli_alert_info("After UKB RSID mapping, extracted {n_extracted_ukb} of {nrow(varlist)} variants")
+        }
+
         use_imp_pos <- FALSE
       }
 
