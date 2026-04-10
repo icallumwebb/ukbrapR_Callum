@@ -179,7 +179,7 @@ create_pgs <- function(
       # and match by CHR, POS, and alleles. We use --make-pgen for compatibility with
       # plink2 builds where --make-pvar is not available.
       if (verbose) cli::cli_alert("Getting variant info from BGEN")
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --make-pgen --out _ukbrapr_tmp_pvar")
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --make-pgen --out _ukbrapr_tmp_pvar")
       if (very_verbose)  {
         system(c1)
       } else {
@@ -199,7 +199,7 @@ create_pgs <- function(
         tidyr::separate_rows(a2, sep=",") |>
         dplyr::mutate(a2=stringr::str_trim(a2)) |>
         dplyr::select(chr, id, pos, a1, a2)
-      system("rm -f _ukbrapr_tmp_pvar*")
+      # keep temporary PGEN/PVAR for scoring so IDs are guaranteed to match
 
     }
 
@@ -275,6 +275,9 @@ create_pgs <- function(
   if (verbose) cli::cli_alert("Make PGS")
     if (is_bed)  {
       c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+    } else if (need_id_remap) {
+      # score from the same temporary pgen used to derive mapped IDs
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --pfile _ukbrapr_tmp_pvar --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     } else {
       c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     }
@@ -286,6 +289,9 @@ create_pgs <- function(
 
   # did it work?
   if (! file.exists(stringr::str_c(out_file, ".sscore")))  cli::cli_abort("Plink failed to make the allele score. Try with `very_verbose=TRUE` to see terminal output.")
+
+  # cleanup temporary pgen/pvar files used for ID mapping + scoring
+  if (need_id_remap)  system("rm -f _ukbrapr_tmp_pvar*")
 
   # just extract EID and SCORE to a .tsv file -- remove participants with invalid EIDs < 0
   system(stringr::str_c("echo \"eid\t", pgs_name, "\" > ", out_file, ".tsv"))
