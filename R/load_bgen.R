@@ -39,7 +39,7 @@ load_bgen <- function(
 
 	# use plink2 to export BGEN to RAW text file
 	if (verbose) cli::cli_alert("Use plink2 to export BGEN to RAW text file")
-	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen, ".sample --rm-dup force-first --export A --out _ukbrapr_tmp")
+	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen, ".sample --set-all-var-ids @:#:$r:$a --new-id-max-allele-len 200 missing --export A --out _ukbrapr_tmp")
 	if (very_verbose)  {
 		system(c1)
 	} else {
