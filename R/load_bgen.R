@@ -39,7 +39,7 @@ load_bgen <- function(
 
 	# use plink2 to export BGEN to RAW text file
 	if (verbose) cli::cli_alert("Use plink2 to export BGEN to RAW text file")
-	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen, ".sample --export A --out _ukbrapr_tmp")
+	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen, ".sample --rm-dup force-first --export A --out _ukbrapr_tmp")
 	if (very_verbose)  {
 		system(c1)
 	} else {
@@ -50,6 +50,10 @@ load_bgen <- function(
 	if (verbose) cli::cli_alert("Read into memory and format")
 	# PLINK RAW files are whitespace-delimited (tabs or spaces)
 	geno_df <- utils::read.table("_ukbrapr_tmp.raw", header=TRUE, sep="", check.names=FALSE, stringsAsFactors=FALSE)
+	if (anyDuplicated(names(geno_df)) > 0)  {
+		cli::cli_warn("Duplicate genotype column names detected; repairing names to keep import stable.")
+		names(geno_df) <- make.unique(names(geno_df), sep="_dup")
+	}
 	names(geno_df)[1] <- "eid"   # plink2 writes "#FID" as first column name
 	geno_df <- geno_df |>
 		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENO")))
