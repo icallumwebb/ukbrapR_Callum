@@ -39,11 +39,11 @@ load_bgen <- function(
 
 	# use plink2 to export BGEN to RAW text file
 	# For multi-allelic records, plink2 --export A produces one dosage column per alt allele.
-	# Use default plink2 variant IDs from the BGEN rather than reassigning, as that avoids
-	# ID collisions on multi-allelic sites.
+	# --set-all-var-ids @_$a names each variant as variant_ALT_ALLELE (e.g., rs72725854_T, rs72725854_G)
+	# so column names are unique and correspond to the alt allele being exported.
 	if (verbose) cli::cli_alert("Use plink2 to export BGEN to RAW text file")
 	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen,
-	             ".sample --export A --out _ukbrapr_tmp")
+	             ".sample --set-all-var-ids @_$a --export A --out _ukbrapr_tmp")
 	if (very_verbose)  {
 		system(c1)
 	} else {
@@ -56,6 +56,19 @@ load_bgen <- function(
 	# PLINK RAW files are whitespace-delimited (tabs or spaces)
 	geno_df <- utils::read.table("_ukbrapr_tmp.raw", header=TRUE, sep="", check.names=FALSE, stringsAsFactors=FALSE)
 	names(geno_df)[1] <- "eid"   # plink2 writes "#FID" as first column name
+	
+	# For multi-allelic variants, plink2 may generate duplicate column names (e.g., both alt alleles
+	# named "rs72725854_A"). Repair these before dplyr::select() which requires unique names.
+	# Only apply to genotype columns (skip metadata FID/IID/PAT/MAT/SEX/PHENO columns).
+	metadata_cols <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENO", "PHENOTYPE", "eid")
+	geno_col_idx <- which(!(names(geno_df) %in% metadata_cols))
+	if (length(geno_col_idx) > 0 && anyDuplicated(names(geno_df)[geno_col_idx]) > 0)  {
+		new_names <- names(geno_df)
+		new_names[geno_col_idx] <- make.unique(names(geno_df)[geno_col_idx], sep="_dup")
+		names(geno_df) <- new_names
+		if (verbose) cli::cli_alert_info("Repaired duplicate genotype column names")
+	}
+	
 	geno_df <- geno_df |>
 		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENO")))
 
