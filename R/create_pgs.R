@@ -203,32 +203,67 @@ create_pgs <- function(
 
     }
 
-    if (need_id_remap && verbose)  {
-      n_mapped <- sum(varlist$rsid != varlist$rsid_old, na.rm=TRUE)
-      cli::cli_alert_info("Mapped {n_mapped} of {nrow(varlist)} score IDs to genotype IDs")
-    }
+    # create ID for each row of the varlist using robust matching:
+    # 1) exact allele set, 2) strand-flip complement, 3) CHR/POS fallback.
+    if (need_id_remap) {
 
-    # create ID for each row of the varlist - make sure alleles match
-    if (need_id_remap) for (ii in 1:nrow(varlist))  {
+      comp_allele <- c(A="T", T="A", C="G", G="C")
+      n_exact_match <- 0
+      n_comp_match <- 0
+      n_pos_fallback <- 0
+      n_unmatched <- 0
 
-      # keep rows where CHR and POS match
-      r <- varinfo[ varinfo$chr==varlist$chr[ii] & varinfo$pos==varlist$pos[ii] , ]
+      for (ii in 1:nrow(varlist))  {
 
-      # any matched?
-      if (nrow(r)>0)  {
+        # keep rows where CHR and POS match
+        r <- varinfo[ varinfo$chr==varlist$chr[ii] & varinfo$pos==varlist$pos[ii] , ]
 
-        # keep rows where both alleles are genotyped
-        r <- r[ r$a1 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) & r$a2 %in% c(varlist$effect_allele[ii],varlist$other_allele[ii]) , ]
-
-        # any matched?
-        if (nrow(r)>0)  {
-
-          # update rsid to match plink2's internal variant ID
-          # if multiple (shouldn't be!) use first
-          varlist$rsid[ii] <- r$id[1]
-
+        # no match at this position?
+        if (nrow(r)==0)  {
+          n_unmatched <- n_unmatched + 1
+          next
         }
 
+        ea <- varlist$effect_allele[ii]
+        oa <- varlist$other_allele[ii]
+
+        # 1) exact allele-set match
+        r_exact <- r[ r$a1 %in% c(ea, oa) & r$a2 %in% c(ea, oa) , ]
+
+        if (nrow(r_exact)>0)  {
+          r_pick <- r_exact
+          if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
+          varlist$rsid[ii] <- r_pick$id[1]
+          n_exact_match <- n_exact_match + 1
+          next
+        }
+
+        # 2) strand-flip complement match
+        ea_comp <- unname(comp_allele[ea])
+        oa_comp <- unname(comp_allele[oa])
+        if (!is.na(ea_comp) && !is.na(oa_comp))  {
+          r_comp <- r[ r$a1 %in% c(ea_comp, oa_comp) & r$a2 %in% c(ea_comp, oa_comp) , ]
+          if (nrow(r_comp)>0)  {
+            r_pick <- r_comp
+            if (any(r_pick$a2 == ea_comp))  r_pick <- r_pick[r_pick$a2 == ea_comp, , drop=FALSE]
+            varlist$rsid[ii] <- r_pick$id[1]
+            n_comp_match <- n_comp_match + 1
+            next
+          }
+        }
+
+        # 3) fallback: CHR/POS only, prioritize ALT == effect allele when possible
+        r_pick <- r
+        if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
+        varlist$rsid[ii] <- r_pick$id[1]
+        n_pos_fallback <- n_pos_fallback + 1
+
+      }
+
+      if (verbose)  {
+        n_mapped <- sum(varlist$rsid != varlist$rsid_old, na.rm=TRUE)
+        cli::cli_alert_info("ID mapping summary: exact={n_exact_match}, strand-flip={n_comp_match}, pos-fallback={n_pos_fallback}, unmatched={n_unmatched}")
+        cli::cli_alert_info("Mapped {n_mapped} of {nrow(varlist)} score IDs to genotype IDs")
       }
 
     }
