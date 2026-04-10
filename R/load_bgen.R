@@ -39,11 +39,11 @@ load_bgen <- function(
 
 	# use plink2 to export BGEN to RAW text file
 	# For multi-allelic records, plink2 --export A produces one dosage column per alt allele.
-	# --set-all-var-ids @:#_$a names each variant as ORIGINAL_ID:POSITION_ALT_ALLELE
-	# (e.g., rs72725854:128074815_T, rs72725854:128074815_G) so column names are unique.
+	# IMPORTANT: escape $ in $r/$a so the shell does not strip them before plink2 sees them.
+	# This yields IDs like 8:128074815:A:T and 8:128074815:A:G for multi-allelic loci.
 	if (verbose) cli::cli_alert("Use plink2 to export BGEN to RAW text file")
 	c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", in_bgen, ".bgen ref-first --sample ", in_bgen,
-	             ".sample --set-all-var-ids @:#_$a --export A --out _ukbrapr_tmp")
+	             ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --export A --out _ukbrapr_tmp")
 	if (very_verbose)  {
 		system(c1)
 	} else {
