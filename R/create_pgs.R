@@ -131,6 +131,11 @@ create_pgs <- function(
   # check varlist formatting and save
   readr::write_tsv(varlist, stringr::str_c(out_file, ".input.txt"))
   varlist <- ukbrapR:::prep_varlist(varlist, doing_pgs=TRUE, verbose=verbose)
+  varlist <- varlist |>
+    dplyr::mutate(
+      effect_allele=stringr::str_to_upper(effect_allele),
+      other_allele=stringr::str_to_upper(other_allele)
+    )
   out_file_varlist <- stringr::str_c(out_file, ".varlist.txt")
 
   # check output format
@@ -169,8 +174,10 @@ create_pgs <- function(
       # BGEN path: use plink2 to write a PGEN (which includes a .pvar variant info file)
       # and match by CHR, POS, and alleles. We use --make-pgen for compatibility with
       # plink2 builds where --make-pvar is not available.
+      # IMPORTANT: set a deterministic ID template here and use the same template in the
+      # later --score call so IDs match exactly.
       if (verbose) cli::cli_alert("Getting variant info from BGEN")
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --make-pgen --out _ukbrapr_tmp_pvar")
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --make-pgen --out _ukbrapr_tmp_pvar")
       if (very_verbose)  {
         system(c1)
       } else {
@@ -182,7 +189,13 @@ create_pgs <- function(
       varinfo_raw <- readr::read_tsv("_ukbrapr_tmp_pvar.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
       varinfo <- varinfo_raw |>
         dplyr::rename(id=ID, pos=POS, a1=REF, a2=ALT) |>
-        dplyr::mutate(chr=as.integer(stringr::str_remove(as.character(.data[[names(varinfo_raw)[1]]]), "^chr"))) |>
+        dplyr::mutate(
+          chr=as.integer(stringr::str_remove(as.character(.data[[names(varinfo_raw)[1]]]), "^chr")),
+          a1=stringr::str_to_upper(a1),
+          a2=stringr::str_to_upper(a2)
+        ) |>
+        tidyr::separate_rows(a2, sep=",") |>
+        dplyr::mutate(a2=stringr::str_trim(a2)) |>
         dplyr::select(chr, id, pos, a1, a2)
       system("rm -f _ukbrapr_tmp_pvar*")
 
@@ -221,7 +234,7 @@ create_pgs <- function(
     if (is_bed)  {
       c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     } else {
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
     }
     if (very_verbose)  {
       system(c1)
