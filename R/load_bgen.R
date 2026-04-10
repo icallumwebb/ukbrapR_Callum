@@ -51,7 +51,7 @@ load_bgen <- function(
 	geno_df <- readr::read_delim("_ukbrapr_tmp.raw", delim=" ", progress=FALSE, show_col_types=FALSE)
 	names(geno_df)[1] <- "eid"   # plink2 writes "#FID" as first column name
 	geno_df <- geno_df |>
-		dplyr::select(-IID, -PAT, -MAT, -SEX, -PHENO)
+		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENO")))
 
 	# remove tmp files
 	system("rm _ukbrapr_tmp*")
