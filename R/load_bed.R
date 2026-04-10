@@ -52,8 +52,8 @@ load_bed <- function(
 
 	# load data to format / merge
 	if (verbose) cli::cli_alert("Read into memory and format")
-	# PLINK RAW files are whitespace-delimited (tabs or spaces), so parse with read_table2
-	bed <- readr::read_table2("_ukbrapr_tmp.raw", progress=FALSE, show_col_types=FALSE)
+	# PLINK RAW files are whitespace-delimited (tabs or spaces)
+	bed <- utils::read.table("_ukbrapr_tmp.raw", header=TRUE, sep="", check.names=FALSE, stringsAsFactors=FALSE)
 	bed <- bed |>
 		dplyr::rename(eid=FID) |>
 		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENOTYPE", "PHENO")))
