@@ -48,7 +48,8 @@ load_bgen <- function(
 
 	# load genotype data to format
 	if (verbose) cli::cli_alert("Read into memory and format")
-	geno_df <- readr::read_delim("_ukbrapr_tmp.raw", delim=" ", progress=FALSE, show_col_types=FALSE)
+	# PLINK RAW files are whitespace-delimited (tabs or spaces), so parse with read_table2
+	geno_df <- readr::read_table2("_ukbrapr_tmp.raw", progress=FALSE, show_col_types=FALSE)
 	names(geno_df)[1] <- "eid"   # plink2 writes "#FID" as first column name
 	geno_df <- geno_df |>
 		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENO")))
