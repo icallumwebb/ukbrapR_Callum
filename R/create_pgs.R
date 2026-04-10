@@ -166,14 +166,17 @@ create_pgs <- function(
 
     } else {
 
-      # BGEN path: use plink2 to write a PVAR (variant info file) and match by CHR, POS, and alleles
+      # BGEN path: use plink2 to write a PGEN (which includes a .pvar variant info file)
+      # and match by CHR, POS, and alleles. We use --make-pgen for compatibility with
+      # plink2 builds where --make-pvar is not available.
       if (verbose) cli::cli_alert("Getting variant info from BGEN")
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --make-pvar --out _ukbrapr_tmp_pvar")
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --rm-dup force-first --make-pgen --out _ukbrapr_tmp_pvar")
       if (very_verbose)  {
         system(c1)
       } else {
         system(stringr::str_c(c1, " >/dev/null"))
       }
+      if (! file.exists("_ukbrapr_tmp_pvar.pvar"))  cli::cli_abort("Plink2 failed to write variant info (.pvar) from BGEN. Try with `very_verbose=TRUE` to see terminal output.")
       # PVAR header: ##fileformat=PARvX.X then #CHROM POS ID REF ALT
       # read_tsv with comment="##" skips the ##fileformat line; #CHROM becomes the first column name
       varinfo_raw <- readr::read_tsv("_ukbrapr_tmp_pvar.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
