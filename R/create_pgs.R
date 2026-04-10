@@ -160,6 +160,33 @@ create_pgs <- function(
   #
   # create PGS
 
+    # Safety fallback for imputed data: if position-based extraction yields very few variants,
+    # retry extraction by RSID. This usually indicates position build mismatch in the score file.
+    if (!is_bed && identical(source, "imputed") && isTRUE(use_imp_pos))  {
+
+      if (verbose) cli::cli_alert("Checking number of variants extracted with position-based lookup")
+      c_check <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --make-pgen --out _ukbrapr_tmp_check")
+      if (very_verbose)  {
+        system(c_check)
+      } else {
+        system(stringr::str_c(c_check, " >/dev/null"))
+      }
+
+      n_extracted <- 0
+      if (file.exists("_ukbrapr_tmp_check.pvar"))  {
+        pvar_check <- readr::read_tsv("_ukbrapr_tmp_check.pvar", comment="##", progress=FALSE, show_col_types=FALSE)
+        n_extracted <- nrow(pvar_check)
+      }
+      system("rm -f _ukbrapr_tmp_check*")
+
+      if (n_extracted < (0.5 * nrow(varlist)))  {
+        cli::cli_warn("Only {n_extracted} of {nrow(varlist)} variants were extracted using position-based lookup. Retrying extraction using RSIDs.")
+        ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=FALSE, progress=progress, verbose=verbose, very_verbose=very_verbose)
+        use_imp_pos <- FALSE
+      }
+
+    }
+
     # Replace user-provided `rsid` with internal IDs when needed.
     # - DRAGEN BGENs generally require CHR:POS:REF:ALT-like IDs.
     # - Imputed BGEN with use_imp_pos=TRUE also benefits from ID remapping, since many
