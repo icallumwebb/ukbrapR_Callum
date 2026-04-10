@@ -160,12 +160,13 @@ create_pgs <- function(
   #
   # create PGS
 
-    # replace user-provided `rsid` with internal IDs only when needed (e.g. DRAGEN-like IDs).
-    # For imputed data, keeping user-supplied RSIDs gives much better match rates and mirrors
-    # the original ukbrapR behavior.
+    # Replace user-provided `rsid` with internal IDs when needed.
+    # - DRAGEN BGENs generally require CHR:POS:REF:ALT-like IDs.
+    # - Imputed BGEN with use_imp_pos=TRUE also benefits from ID remapping, since many
+    #   extracted variants do not retain user RSIDs as plink2 scoring IDs.
 
     varlist$rsid_old <- varlist$rsid
-    need_id_remap <- identical(source, "dragen")
+    need_id_remap <- identical(source, "dragen") || (!is_bed && identical(source, "imputed") && isTRUE(use_imp_pos))
 
     if (need_id_remap && is_bed)  {
 
@@ -177,10 +178,8 @@ create_pgs <- function(
       # BGEN path: use plink2 to write a PGEN (which includes a .pvar variant info file)
       # and match by CHR, POS, and alleles. We use --make-pgen for compatibility with
       # plink2 builds where --make-pvar is not available.
-      # IMPORTANT: set a deterministic ID template here and use the same template in the
-      # later --score call so IDs match exactly.
       if (verbose) cli::cli_alert("Getting variant info from BGEN")
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --set-all-var-ids @:#:\\$r:\\$a --new-id-max-allele-len 200 missing --make-pgen --out _ukbrapr_tmp_pvar")
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --make-pgen --out _ukbrapr_tmp_pvar")
       if (very_verbose)  {
         system(c1)
       } else {
@@ -202,6 +201,11 @@ create_pgs <- function(
         dplyr::select(chr, id, pos, a1, a2)
       system("rm -f _ukbrapr_tmp_pvar*")
 
+    }
+
+    if (need_id_remap && verbose)  {
+      n_mapped <- sum(varlist$rsid != varlist$rsid_old, na.rm=TRUE)
+      cli::cli_alert_info("Mapped {n_mapped} of {nrow(varlist)} score IDs to genotype IDs")
     }
 
     # create ID for each row of the varlist - make sure alleles match
