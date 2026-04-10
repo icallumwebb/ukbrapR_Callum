@@ -55,7 +55,7 @@ load_bed <- function(
 	bed <- readr::read_delim("_ukbrapr_tmp.raw", delim=" ", progress=FALSE, show_col_types=FALSE)
 	bed <- bed |>
 		dplyr::rename(eid=FID) |>
-		dplyr::select(-IID, -PAT, -MAT, -SEX, -PHENOTYPE)
+		dplyr::select(-dplyr::any_of(c("IID", "PAT", "MAT", "SEX", "PHENOTYPE", "PHENO")))
 
 	# remove tmp files
 	system("rm _ukbrapr_tmp*")

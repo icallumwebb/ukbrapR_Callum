@@ -175,7 +175,10 @@ make_imputed_bgen <- function(
   if (! file.exists(stringr::str_c(out_bgen, ".bgen")))  cli::cli_abort("Failed to create the BGEN. Try with `very_verbose=TRUE` to see terminal output.")
 
   # copy sample file alongside the BGEN
-  file.copy(sample_file_path, stringr::str_c(out_bgen, ".sample"), overwrite=TRUE)
+  out_sample <- stringr::str_c(out_bgen, ".sample")
+  if (file.exists(out_sample))  unlink(out_sample, force=TRUE)
+  ok_copy <- file.copy(sample_file_path, out_sample, overwrite=TRUE)
+  if (!ok_copy)  cli::cli_abort("Failed to copy .sample file. Check write permissions in your working directory or choose a different output prefix.")
 
   # finished
   if (n_chrs>1)  {
@@ -355,7 +358,10 @@ make_dragen_bgen <- function(
 	if (! file.exists(stringr::str_c(out_bgen, ".bgen")))  cli::cli_abort("Failed to create the BGEN. Try with `very_verbose=TRUE` to see terminal output.")
 
 	# copy sample file alongside the BGEN
-	file.copy(sample_file_path, stringr::str_c(out_bgen, ".sample"), overwrite=TRUE)
+  out_sample <- stringr::str_c(out_bgen, ".sample")
+  if (file.exists(out_sample))  unlink(out_sample, force=TRUE)
+  ok_copy <- file.copy(sample_file_path, out_sample, overwrite=TRUE)
+  if (!ok_copy)  cli::cli_abort("Failed to copy .sample file. Check write permissions in your working directory or choose a different output prefix.")
 
 	# finished
 	if (n_chrs>1)  {
