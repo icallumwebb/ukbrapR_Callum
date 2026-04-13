@@ -8,6 +8,7 @@ if (!requireNamespace("readxl", quietly = TRUE)) {
 }
 
 library(readxl)
+library(readr)
 library(stringr)
 library(tidyr)
 
