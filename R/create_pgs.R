@@ -133,8 +133,9 @@ create_pgs <- function(
   varlist <- ukbrapR:::prep_varlist(varlist, doing_pgs=TRUE, verbose=verbose)
   varlist <- varlist |>
     dplyr::mutate(
-      effect_allele=stringr::str_to_upper(effect_allele),
-      other_allele=stringr::str_to_upper(other_allele)
+      rsid=stringr::str_trim(rsid),
+      effect_allele=stringr::str_to_upper(stringr::str_trim(effect_allele)),
+      other_allele=stringr::str_to_upper(stringr::str_trim(other_allele))
     )
   out_file_varlist <- stringr::str_c(out_file, ".varlist.txt")
 
@@ -193,7 +194,7 @@ create_pgs <- function(
         if (n_extracted_rsid < (0.5 * nrow(varlist)))  {
           cli::cli_warn("RSID retry still only extracted {n_extracted_rsid} of {nrow(varlist)} variants. Trying UKB RSID mapping from MFI metadata.")
 
-          # Try to resolve rsids to UKB-specific IDs using CHR/POS, then re-extract by rsID
+          # Step 3a: Try to resolve rsids to UKB-specific IDs using CHR/POS
           varlist_map <- varlist |> dplyr::select(rsid, chr, pos)
           mapped_info <- ukbrapR::get_imputed_variant_info(varlist=varlist_map, verbose=FALSE)
           mapped_info <- mapped_info |>
@@ -208,6 +209,73 @@ create_pgs <- function(
           ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=FALSE, progress=progress, verbose=verbose, very_verbose=very_verbose)
           n_extracted_ukb <- count_extracted_variants(geno_path)
           if (verbose) cli::cli_alert_info("After UKB RSID mapping, extracted {n_extracted_ukb} of {nrow(varlist)} variants")
+
+          # Step 3b: If position-based MFI lookup also failed, try RSID-based MFI lookup.
+          # This handles the case where user positions are wrong build (e.g., GRCh38) but
+          # user RSIDs are valid -- we search MFI files directly by RSID name to find the
+          # correct UKB RSID and GRCh37 position.
+          if (n_extracted_ukb < (0.5 * nrow(varlist)))  {
+            cli::cli_warn("Position-based MFI mapping extracted {n_extracted_ukb} of {nrow(varlist)} variants. Trying RSID-based MFI lookup.")
+
+            # collect valid rs-prefixed RSIDs for lookup
+            rs_ids <- varlist$rsid[stringr::str_starts(varlist$rsid, "rs")]
+            rs_ids <- unique(rs_ids[!is.na(rs_ids) & rs_ids != ""])
+
+            if (length(rs_ids) > 0)  {
+              # search all autosomal + X MFI files (RSID might map to different chr than user expected)
+              mfi_chrs <- c(as.character(1:22), "X")
+              mfi_results <- NULL
+
+              for (mfi_chr in mfi_chrs)  {
+                mfi_path <- stringr::str_c("/mnt/project/Bulk/Imputation/UKB\\ imputation\\ from\\ genotype/ukb22828_c", mfi_chr, "_b0_v3.mfi.txt")
+                # grep for RSIDs by name in MFI (column 2 = ukb_rsid)
+                rs_sub <- rs_ids  # search all RSIDs in each chr's MFI
+                if (length(rs_sub) == 0) next
+                search_string <- paste0("grep -E -w ", sprintf('"%s"', stringr::str_flatten(rs_sub, collapse = "|")), " ", sprintf('%s', mfi_path))
+                mfi_tbl <- tryCatch(
+                  suppressWarnings(readr::read_tsv(pipe(search_string), col_names=c("ukb_variant_id","ukb_rsid","mfi_pos","ukb_a1","ukb_a2","ukb_maf","ukb_minor_allele","ukb_info"), show_col_types=FALSE, progress=FALSE)),
+                  error = function(e) NULL
+                )
+                if (!is.null(mfi_tbl) && nrow(mfi_tbl) > 0)  {
+                  # only keep rows where ukb_rsid matches one of our RSIDs exactly
+                  mfi_tbl <- mfi_tbl |> dplyr::filter(ukb_rsid %in% rs_sub)
+                  if (nrow(mfi_tbl) > 0)  {
+                    mfi_tbl$mfi_chr <- mfi_chr
+                    mfi_results <- dplyr::bind_rows(mfi_results, mfi_tbl)
+                  }
+                }
+              }
+
+              if (!is.null(mfi_results) && nrow(mfi_results) > 0)  {
+                # deduplicate: keep first match per RSID
+                mfi_results <- mfi_results |> dplyr::distinct(ukb_rsid, .keep_all=TRUE)
+
+                if (verbose) cli::cli_alert_info("RSID-based MFI lookup found {nrow(mfi_results)} of {length(rs_ids)} RSIDs in MFI files")
+
+                # update varlist: replace chr and pos with MFI values, update rsid to ukb_rsid
+                varlist <- varlist |>
+                  dplyr::left_join(
+                    mfi_results |> dplyr::select(ukb_rsid, mfi_chr, mfi_pos),
+                    by=c("rsid"="ukb_rsid")
+                  ) |>
+                  dplyr::mutate(
+                    chr=dplyr::coalesce(mfi_chr, chr),
+                    pos=dplyr::coalesce(as.character(mfi_pos), as.character(pos))
+                  ) |>
+                  dplyr::mutate(pos=as.numeric(pos)) |>
+                  dplyr::select(-mfi_chr, -mfi_pos)
+
+                # re-extract by position using the corrected GRCh37 coordinates
+                ukbrapR::make_imputed_bgen(in_file=varlist, out_bgen=geno_path, use_pos=TRUE, progress=progress, verbose=verbose, very_verbose=very_verbose)
+                n_extracted_mfi_rsid <- count_extracted_variants(geno_path)
+                if (verbose) cli::cli_alert_info("After RSID-based MFI mapping + position re-extraction, extracted {n_extracted_mfi_rsid} of {nrow(varlist)} variants")
+              } else {
+                cli::cli_warn("RSID-based MFI lookup found no matches. Check that your RSIDs are in standard 'rs...' format and present in UKB imputed data.")
+              }
+            } else {
+              cli::cli_warn("No valid rs-prefixed RSIDs found in varlist for MFI lookup.")
+            }
+          }
         }
 
         use_imp_pos <- FALSE
@@ -249,7 +317,7 @@ create_pgs <- function(
       varinfo <- varinfo_raw |>
         dplyr::rename(id=ID, pos=POS, a1=REF, a2=ALT) |>
         dplyr::mutate(
-          chr=as.integer(stringr::str_remove(as.character(.data[[names(varinfo_raw)[1]]]), "^chr")),
+          chr=stringr::str_remove(as.character(.data[[names(varinfo_raw)[1]]]), "^chr"),
           a1=stringr::str_to_upper(a1),
           a2=stringr::str_to_upper(a2)
         ) |>
@@ -336,18 +404,22 @@ create_pgs <- function(
 
     }
 
-  # save the varlist for plink
+  # deduplicate varlist in case left_join or MFI mapping introduced duplicate rows
+  varlist <- varlist |> dplyr::distinct(rsid, chr, pos, effect_allele, other_allele, .keep_all=TRUE)
+
+  # save the varlist for plink (and as a diagnostic file)
   readr::write_tsv(varlist, out_file_varlist, progress=FALSE)
+  if (verbose) cli::cli_alert_info("Varlist saved to {.file {out_file_varlist}} ({nrow(varlist)} rows)")
 
   # Plink
   if (verbose) cli::cli_alert("Make PGS")
     if (is_bed)  {
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bfile ", geno_path, " --score ", out_file_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", out_file)
     } else if (need_id_remap) {
       # score from the same temporary pgen used to derive mapped IDs
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --pfile _ukbrapr_tmp_pvar --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --pfile _ukbrapr_tmp_pvar --score ", out_file_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", out_file)
     } else {
-      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --score ", out_file_varlist, " 1 4 6 header cols=+scoresums,+scoreavgs --out ", out_file)
+      c1 <- paste0("~/_ukbrapr_tools/plink2 --bgen ", geno_path, ".bgen ref-first --sample ", geno_path, ".sample --score ", out_file_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", out_file)
     }
     if (very_verbose)  {
       system(c1)
