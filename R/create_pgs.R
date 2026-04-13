@@ -282,7 +282,7 @@ create_pgs <- function(
         if (n_extracted_rsid < (0.5 * nrow(varlist)))  {
           cli::cli_warn("RSID retry still only extracted {n_extracted_rsid} of {nrow(varlist)} variants. Trying UKB RSID mapping from MFI metadata.")
 
-          # Step 3a: Try to resolve rsids to UKB-specific IDs using CHR/POS
+          # try to resolve rsids to UKB-specific IDs using CHR/POS
           varlist_map <- varlist |> dplyr::select(rsid, chr, pos)
           mapped_info <- ukbrapR::get_imputed_variant_info(varlist=varlist_map, verbose=FALSE)
           mapped_info <- mapped_info |>
@@ -298,9 +298,9 @@ create_pgs <- function(
           n_extracted_ukb <- count_extracted_variants(geno_path)
           if (verbose) cli::cli_alert_info("After UKB RSID mapping, extracted {n_extracted_ukb} of {nrow(varlist)} variants")
 
-          # Step 3b: If position-based MFI lookup also failed, try RSID-based MFI lookup.
-          # This handles the case where user positions are wrong build (e.g., GRCh38) but
-          # user RSIDs are valid -- we search MFI files directly by RSID name to find the
+          # if position-based MFI lookup also failed, try RSID-based MFI lookup.
+          # this handles the case where user positions are wrong build (e.g., GRCh38) but
+          # user RSIDs are valid - searches MFI files directly by RSID name to find the
           # correct UKB RSID and GRCh37 position.
           if (n_extracted_ukb < (0.5 * nrow(varlist)))  {
             cli::cli_warn("Position-based MFI mapping extracted {n_extracted_ukb} of {nrow(varlist)} variants. Trying RSID-based MFI lookup.")
@@ -325,7 +325,7 @@ create_pgs <- function(
                   error = function(e) NULL
                 )
                 if (!is.null(mfi_tbl) && nrow(mfi_tbl) > 0)  {
-                  # only keep rows where ukb_rsid matches one of our RSIDs exactly
+                  # only keep rows where ukb_rsid matches RSIDs exactly
                   mfi_tbl <- mfi_tbl |> dplyr::filter(ukb_rsid %in% rs_sub)
                   if (nrow(mfi_tbl) > 0)  {
                     mfi_tbl$mfi_chr <- mfi_chr
