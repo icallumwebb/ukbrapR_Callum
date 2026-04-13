@@ -73,22 +73,6 @@ create_pgs <- function(
 
   start_time <- Sys.time()
 
-  run_plink_score <- function(score_prefix, score_varlist, score_geno_path, score_is_bed, score_need_id_remap) {
-    if (score_is_bed)  {
-      c_score <- paste0("~/_ukbrapr_tools/plink2 --bfile ", score_geno_path, " --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
-    } else if (score_need_id_remap) {
-      c_score <- paste0("~/_ukbrapr_tools/plink2 --pfile ", score_geno_path, " --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
-    } else {
-      c_score <- paste0("~/_ukbrapr_tools/plink2 --bgen ", score_geno_path, ".bgen ref-first --sample ", score_geno_path, ".sample --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
-    }
-    if (very_verbose)  {
-      system(c_score)
-    } else {
-      system(stringr::str_c(c_score, " >/dev/null"))
-    }
-    if (! file.exists(stringr::str_c(score_prefix, ".sscore")))  cli::cli_abort("Plink failed to make the allele score. Try with `very_verbose=TRUE` to see terminal output.")
-  }
-
   read_score_table <- function(score_prefix) {
     sscore <- readr::read_tsv(stringr::str_c(score_prefix, ".sscore"), progress=FALSE, show_col_types=FALSE)
     names(sscore)[names(sscore) == "#FID"] <- "FID"
