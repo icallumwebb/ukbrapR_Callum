@@ -73,6 +73,43 @@ create_pgs <- function(
 
   start_time <- Sys.time()
 
+  run_plink_score <- function(score_prefix, score_varlist, score_geno_path, score_is_bed, score_need_id_remap) {
+    if (score_is_bed)  {
+      c_score <- paste0("~/_ukbrapr_tools/plink2 --bfile ", score_geno_path, " --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
+    } else if (score_need_id_remap) {
+      c_score <- paste0("~/_ukbrapr_tools/plink2 --pfile ", score_geno_path, " --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
+    } else {
+      c_score <- paste0("~/_ukbrapr_tools/plink2 --bgen ", score_geno_path, ".bgen ref-first --sample ", score_geno_path, ".sample --score ", score_varlist, " 1 4 6 header list-variants cols=+scoresums,+scoreavgs --out ", score_prefix)
+    }
+    if (very_verbose)  {
+      system(c_score)
+    } else {
+      system(stringr::str_c(c_score, " >/dev/null"))
+    }
+    if (! file.exists(stringr::str_c(score_prefix, ".sscore")))  cli::cli_abort("Plink failed to make the allele score. Try with `very_verbose=TRUE` to see terminal output.")
+  }
+
+  read_score_table <- function(score_prefix) {
+    sscore <- readr::read_tsv(stringr::str_c(score_prefix, ".sscore"), progress=FALSE, show_col_types=FALSE)
+    names(sscore)[names(sscore) == "#FID"] <- "FID"
+    sum_col <- grep("_SUM$", names(sscore), value=TRUE)[1]
+    avg_col <- grep("_AVG$", names(sscore), value=TRUE)[1]
+    denom_col <- intersect(c("DENOM", "ALLELE_CT", "NAMED_ALLELE_DOSAGE_SUM"), names(sscore))[1]
+    if (is.na(sum_col) || is.na(avg_col))  cli::cli_abort("Unexpected plink2 .sscore format; could not identify score columns.")
+    if (is.na(denom_col))  {
+      denom_col <- "DENOM"
+      sscore[[denom_col]] <- NA_real_
+    }
+    sscore |>
+      dplyr::transmute(
+        eid=as.numeric(IID),
+        score_sum=.data[[sum_col]],
+        score_avg=.data[[avg_col]],
+        score_denom=.data[[denom_col]]
+      ) |>
+      dplyr::filter(eid > 0)
+  }
+
   #
   #
   # check inputs
@@ -154,6 +191,63 @@ create_pgs <- function(
   if (length(out_file)>1)  cli::cli_abort("Output file prefix needs to be length 1")
   if (out_file=="tmp")  overwrite <- TRUE
   if (!is_bed & file.exists(paste0(out_file,".bgen")) & !overwrite)  cli::cli_abort("Output BGEN already exists. To overwrite, set option `overwrite=TRUE`")
+
+  # chrX in UKB imputed data has a different sample set from autosomes, so it cannot be
+  # concatenated into the same BGEN. Score autosomes and chrX separately, then combine.
+  if (!is_bed && identical(source, "imputed") && any(varlist$chr == "X") && any(varlist$chr != "X"))  {
+    if (verbose) cli::cli_alert("Detected mixed autosomal + chrX imputed score. Running separate autosome and chrX scoring passes.")
+
+    auto_prefix <- stringr::str_c(out_file, ".autosome")
+    chrx_prefix <- stringr::str_c(out_file, ".chrX")
+
+    auto_varlist <- varlist |> dplyr::filter(chr != "X")
+    chrx_varlist <- varlist |> dplyr::filter(chr == "X")
+
+    create_pgs(
+      in_file=auto_varlist,
+      out_file=auto_prefix,
+      pgs_name=pgs_name,
+      source=source,
+      use_imp_pos=use_imp_pos,
+      is_bed=FALSE,
+      overwrite=TRUE,
+      progress=progress,
+      verbose=verbose,
+      very_verbose=very_verbose
+    )
+
+    create_pgs(
+      in_file=chrx_varlist,
+      out_file=chrx_prefix,
+      pgs_name=pgs_name,
+      source=source,
+      use_imp_pos=use_imp_pos,
+      is_bed=FALSE,
+      overwrite=TRUE,
+      progress=progress,
+      verbose=verbose,
+      very_verbose=very_verbose
+    )
+
+    auto_scores <- read_score_table(auto_prefix)
+    chrx_scores <- read_score_table(chrx_prefix)
+
+    pgs <- dplyr::full_join(auto_scores, chrx_scores, by="eid", suffix=c("_auto", "_x")) |>
+      dplyr::mutate(
+        score_sum=dplyr::coalesce(score_sum_auto, 0) + dplyr::coalesce(score_sum_x, 0),
+        score_denom=dplyr::coalesce(score_denom_auto, 0) + dplyr::coalesce(score_denom_x, 0),
+        score_avg=dplyr::if_else(score_denom > 0, score_sum / score_denom, NA_real_)
+      ) |>
+      dplyr::transmute(eid, !!pgs_name := score_avg) |>
+      dplyr::arrange(eid)
+
+    readr::write_tsv(pgs, stringr::str_c(out_file, ".tsv"), progress=FALSE)
+    cli::cli_alert_success(stringr::str_c("PGS created! See file {.file ", out_file, ".tsv}"))
+    if (verbose) cli::cli_alert_info("Combined autosomal and chrX scores into {.file {stringr::str_c(out_file, '.tsv')}}")
+    if (verbose) cli::cli_alert_info(c("Time taken: ", "{prettyunits::pretty_sec(as.numeric(difftime(Sys.time(), start_time, units=\"secs\")))}."))
+
+    return(pgs)
+  }
 
   #
   #
@@ -485,12 +579,10 @@ create_pgs <- function(
   # cleanup temporary pgen/pvar files used for ID mapping + scoring
   if (need_id_remap)  system("rm -f _ukbrapr_tmp_pvar*")
 
-  # just extract EID and SCORE to a .tsv file -- remove participants with invalid EIDs < 0
-  system(stringr::str_c("echo \"eid\t", pgs_name, "\" > ", out_file, ".tsv"))
-  system(stringr::str_c("awk 'NR > 1 && $1 > 0 { print $1\"\t\"$5 }' ", out_file, ".sscore >> ", out_file, ".tsv"))
-
-  # load
-  pgs <- readr::read_tsv(stringr::str_c(out_file, ".tsv"), progress=FALSE, show_col_types=FALSE)
+  # parse the .sscore output by named columns instead of relying on fixed column positions
+  pgs <- read_score_table(out_file) |>
+    dplyr::transmute(eid, !!pgs_name := score_avg)
+  readr::write_tsv(pgs, stringr::str_c(out_file, ".tsv"), progress=FALSE)
 
   #
   #
