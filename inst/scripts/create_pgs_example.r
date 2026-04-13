@@ -1,5 +1,5 @@
 ### YOU WILL NEED TO RUN THESE TWO LINES SEPARETELY (AND INDIVIDUALLY), THEN THE REST OF THE SCRIPT
-remotes::install_github("icallumwebb/ukbrapR_Callum")
+remotes::install_github("icallumwebb/ukbrapR_Callum", force = TRUE)
 
 library(dplyr)
 
