@@ -139,6 +139,16 @@ create_pgs <- function(
     )
   out_file_varlist <- stringr::str_c(out_file, ".varlist.txt")
 
+  # diagnostic summary of varlist after prep
+  if (verbose)  {
+    chr_counts <- table(varlist$chr)
+    cli::cli_alert_info("Varlist summary: {nrow(varlist)} variants across {length(chr_counts)} chromosome(s)")
+    cli::cli_alert_info("  CHR distribution: {paste(names(chr_counts), '=', chr_counts, collapse=', ')}")
+    cli::cli_alert_info("  Sample RSIDs: {paste(utils::head(varlist$rsid, 5), collapse=', ')}")
+    cli::cli_alert_info("  Sample positions: {paste(utils::head(varlist$pos, 5), collapse=', ')}")
+    cli::cli_alert_info("  CHR column class: {class(varlist$chr)[1]}, POS column class: {class(varlist$pos)[1]}")
+  }
+
   # check output format
   if (! class(out_file)=="character")  cli::cli_abort("Output file prefix needs to be a character string")
   if (length(out_file)>1)  cli::cli_abort("Output file prefix needs to be length 1")
@@ -325,6 +335,13 @@ create_pgs <- function(
         dplyr::mutate(a2=stringr::str_trim(a2)) |>
         dplyr::select(chr, id, pos, a1, a2)
       # keep temporary PGEN/PVAR for scoring so IDs are guaranteed to match
+
+      # diagnostic: save what was actually extracted vs what was expected
+      if (verbose) {
+        cli::cli_alert_info("BGEN contains {nrow(varinfo)} variant(s). Varlist expects {nrow(varlist)} variant(s).")
+        readr::write_tsv(varinfo, stringr::str_c(out_file, ".diagnostic_extracted.txt"), progress=FALSE)
+        cli::cli_alert_info("Wrote extracted variant info to {.file {stringr::str_c(out_file, '.diagnostic_extracted.txt')}}")
+      }
 
     }
 

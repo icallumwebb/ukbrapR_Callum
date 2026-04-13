@@ -82,6 +82,13 @@ make_imputed_bgen <- function(
   chrs <- unique(varlist$chr)
   n_chrs <- length(chrs)
 
+  if (very_verbose) {
+    chr_counts <- table(varlist$chr)
+    cli::cli_alert_info("make_imputed_bgen input: {nrow(varlist)} variants, {n_chrs} chr(s): {paste(names(chr_counts), '=', chr_counts, collapse=', ')}")
+    cli::cli_alert_info("CHR class={class(varlist$chr)[1]}, POS class={class(varlist$pos)[1]}, RSID class={class(varlist$rsid)[1]}")
+    cli::cli_alert_info("First 5 rows: {paste(paste0(varlist$rsid[1:min(5,nrow(varlist))], ' chr', varlist$chr[1:min(5,nrow(varlist))], ':', varlist$pos[1:min(5,nrow(varlist))]), collapse='; ')}")
+  }
+
   # show progress
   cli::cli_alert("Extracting {nrow(varlist)} variant{?s} from {n_chrs} imputed BGEN file{?s}")
 
@@ -101,9 +108,11 @@ make_imputed_bgen <- function(
       if (chr %in% c(1:9))  this_chr <- stringr::str_c("0", chr)   # imputed BGENs have 0 prefix for chrs <10
       varlist_sub <- varlist |> dplyr::filter(chr==!!chr) |> dplyr::mutate(variant_range=stringr::str_c(this_chr, ":", pos, "-", pos))
       readr::write_tsv(dplyr::select(varlist_sub, variant_range), "_ukbrapr_tmp_range.txt", col_names=FALSE, progress=FALSE)
+      if (very_verbose) cli::cli_alert_info(stringr::str_c("CHR ", chr, ": querying ", nrow(varlist_sub), " position(s). First 3 ranges: ", paste(utils::head(varlist_sub$variant_range, 3), collapse=", ")))
     } else {
       varlist_sub <- varlist |> dplyr::filter(chr==!!chr)
       readr::write_tsv(dplyr::select(varlist_sub, rsid), "_ukbrapr_tmp_rsids.txt", col_names=FALSE, progress=FALSE)
+      if (very_verbose) cli::cli_alert_info(stringr::str_c("CHR ", chr, ": querying ", nrow(varlist_sub), " RSID(s). First 3: ", paste(utils::head(varlist_sub$rsid, 3), collapse=", ")))
     }
 
     # path to BGEN
@@ -134,8 +143,10 @@ make_imputed_bgen <- function(
     system("rm _ukbrapr_tmp_list.txt")
 
     # if no variants in the BGEN (nrow of list file <=3) then skip this CHR
+    n_variants_chr <- max(0L, n_rows - 3L)  # bgenix list has 3 header/footer lines
     if (n_rows > 3)  {
       bgen_files <- c(bgen_files, tmp_bgen)
+      if (verbose) cli::cli_alert_info(stringr::str_c("CHR ", chr, ": extracted ", n_variants_chr, " of ", nrow(varlist_sub), " requested variants"))
       if (is.null(sample_file_path))  {
         sample_file_path <- stringr::str_replace_all(
           stringr::str_c("/mnt/project/Bulk/Imputation/UKB\\ imputation\\ from\\ genotype/ukb22828_c", chr, "_b0_v3.sample"),
@@ -143,6 +154,7 @@ make_imputed_bgen <- function(
         )
       }
     } else {
+      if (verbose) cli::cli_alert_warning(stringr::str_c("CHR ", chr, ": 0 of ", nrow(varlist_sub), " requested variants found in imputed BGEN"))
       cli::cli_warn(stringr::str_c("Variants on CHR ", chr, " are in the input varlist but are missing from imputed BGEN"))
       system(stringr::str_c("rm -f ", tmp_bgen, " ", tmp_bgen, ".bgi"))
     }
