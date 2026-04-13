@@ -101,6 +101,7 @@ make_imputed_bgen <- function(
   cli::cli_alert("Extracting {nrow(varlist)} variant{?s} from {n_chrs} imputed BGEN file{?s}")
 
   bgen_files      <- character(0)
+  bgen_file_chr   <- character(0)
   sample_file_path <- NULL
 
   # loop over files...
@@ -154,6 +155,7 @@ make_imputed_bgen <- function(
     n_variants_chr <- max(0L, n_rows - 3L)  # bgenix list has 3 header/footer lines
     if (n_rows > 3)  {
       bgen_files <- c(bgen_files, tmp_bgen)
+      bgen_file_chr <- c(bgen_file_chr, as.character(chr))
       if (verbose) cli::cli_alert_info(stringr::str_c("CHR ", chr, ": extracted ", n_variants_chr, " of ", nrow(varlist_sub), " requested variants"))
       if (is.null(sample_file_path))  {
         sample_file_path <- stringr::str_replace_all(
@@ -189,6 +191,20 @@ make_imputed_bgen <- function(
     cat_status <- 0
     if ( very_verbose)  cat_status <- system(c1)
     if (!very_verbose)  cat_status <- system(stringr::str_c(c1, " 2>/dev/null"))
+
+    # UKB imputed chrX can have fewer samples than autosomes; cat-bgen then fails.
+    # If chrX is present, retry concatenation without chrX and continue with autosomes.
+    if (cat_status != 0 && any(bgen_file_chr == "X"))  {
+      cli::cli_warn("cat-bgen failed when chrX was included (likely sample-count mismatch vs autosomes). Retrying without chrX variants.")
+      keep_idx <- which(bgen_file_chr != "X")
+      bgen_files_no_x <- bgen_files[keep_idx]
+      bgen_args_no_x <- stringr::str_c("-g ", bgen_files_no_x, collapse=" ")
+      c1_no_x <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args_no_x, " -og ", out_bgen, ".bgen")
+      if ( very_verbose)  cat_status <- system(c1_no_x)
+      if (!very_verbose)  cat_status <- system(stringr::str_c(c1_no_x, " 2>/dev/null"))
+      if (cat_status == 0)  cli::cli_alert_info("Successfully concatenated autosomal chromosomes; chrX variants were excluded.")
+    }
+
     if (cat_status != 0)  cli::cli_abort("cat-bgen failed while concatenating per-chromosome BGEN files. Try with `very_verbose=TRUE` to see terminal output.")
     for (f in bgen_files)  system(stringr::str_c("rm -f ", f, " ", f, ".bgi"))
   }
