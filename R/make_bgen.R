@@ -187,7 +187,7 @@ make_imputed_bgen <- function(
   } else {
     if (verbose) cli::cli_alert("Concatenating per-chr BGENs with cat-bgen")
     bgen_args <- stringr::str_c("-g ", bgen_files, collapse=" ")
-    c1 <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args, " -og ", out_bgen, ".bgen")
+    c1 <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args, " -og ", out_bgen, ".bgen -clobber")
     cat_status <- 0
     if ( very_verbose)  cat_status <- system(c1)
     if (!very_verbose)  cat_status <- system(stringr::str_c(c1, " 2>/dev/null"))
@@ -196,10 +196,13 @@ make_imputed_bgen <- function(
     # If chrX is present, retry concatenation without chrX and continue with autosomes.
     if (cat_status != 0 && any(bgen_file_chr == "X"))  {
       cli::cli_warn("cat-bgen failed when chrX was included (likely sample-count mismatch vs autosomes). Retrying without chrX variants.")
+      # first failed run can leave a partial output file; remove it before retry
+      if (file.exists(out_bgen_file))  unlink(out_bgen_file, force=TRUE)
+      if (file.exists(out_bgi_file))   unlink(out_bgi_file, force=TRUE)
       keep_idx <- which(bgen_file_chr != "X")
       bgen_files_no_x <- bgen_files[keep_idx]
       bgen_args_no_x <- stringr::str_c("-g ", bgen_files_no_x, collapse=" ")
-      c1_no_x <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args_no_x, " -og ", out_bgen, ".bgen")
+      c1_no_x <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args_no_x, " -og ", out_bgen, ".bgen -clobber")
       if ( very_verbose)  cat_status <- system(c1_no_x)
       if (!very_verbose)  cat_status <- system(stringr::str_c(c1_no_x, " 2>/dev/null"))
       if (cat_status == 0)  cli::cli_alert_info("Successfully concatenated autosomal chromosomes; chrX variants were excluded.")
