@@ -72,6 +72,14 @@ make_imputed_bgen <- function(
   if (! class(out_bgen)=="character")  cli::cli_abort("Output file prefix needs to be a character string")
   if (length(out_bgen)>1)  cli::cli_abort("Output file prefix needs to be length 1")
 
+  # remove any stale outputs so failed concatenation cannot silently reuse old files
+  out_bgen_file <- stringr::str_c(out_bgen, ".bgen")
+  out_bgi_file <- stringr::str_c(out_bgen, ".bgen.bgi")
+  out_sample_file <- stringr::str_c(out_bgen, ".sample")
+  if (file.exists(out_bgen_file))   unlink(out_bgen_file, force=TRUE)
+  if (file.exists(out_bgi_file))    unlink(out_bgi_file, force=TRUE)
+  if (file.exists(out_sample_file)) unlink(out_sample_file, force=TRUE)
+
   #
   # get bgenix and plink2
   ukbrapR:::prep_tools(get_plink=FALSE, get_plink2=TRUE, get_bgen=TRUE, verbose=verbose, very_verbose=very_verbose)
@@ -178,8 +186,10 @@ make_imputed_bgen <- function(
     if (verbose) cli::cli_alert("Concatenating per-chr BGENs with cat-bgen")
     bgen_args <- stringr::str_c("-g ", bgen_files, collapse=" ")
     c1 <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args, " -og ", out_bgen, ".bgen")
-    if ( very_verbose)  system(c1)
-    if (!very_verbose)  system(stringr::str_c(c1, " 2>/dev/null"))
+    cat_status <- 0
+    if ( very_verbose)  cat_status <- system(c1)
+    if (!very_verbose)  cat_status <- system(stringr::str_c(c1, " 2>/dev/null"))
+    if (cat_status != 0)  cli::cli_abort("cat-bgen failed while concatenating per-chromosome BGEN files. Try with `very_verbose=TRUE` to see terminal output.")
     for (f in bgen_files)  system(stringr::str_c("rm -f ", f, " ", f, ".bgi"))
   }
 
@@ -268,6 +278,14 @@ make_dragen_bgen <- function(
 
 	if (! class(out_bgen)=="character")  cli::cli_abort("Output file prefix needs to be a character string")
 	if (length(out_bgen)>1)  cli::cli_abort("Output file prefix needs to be length 1")
+
+  # remove any stale outputs so failed concatenation cannot silently reuse old files
+  out_bgen_file <- stringr::str_c(out_bgen, ".bgen")
+  out_bgi_file <- stringr::str_c(out_bgen, ".bgen.bgi")
+  out_sample_file <- stringr::str_c(out_bgen, ".sample")
+  if (file.exists(out_bgen_file))   unlink(out_bgen_file, force=TRUE)
+  if (file.exists(out_bgi_file))    unlink(out_bgi_file, force=TRUE)
+  if (file.exists(out_sample_file)) unlink(out_sample_file, force=TRUE)
 
 	#
 	# get bgenix and plink2
@@ -361,8 +379,10 @@ make_dragen_bgen <- function(
 		if (verbose) cli::cli_alert("Concatenating per-chr BGENs with cat-bgen")
 		bgen_args <- stringr::str_c("-g ", bgen_files, collapse=" ")
 		c1 <- stringr::str_c("~/_ukbrapr_tools/cat-bgen ", bgen_args, " -og ", out_bgen, ".bgen")
-		if ( very_verbose)  system(c1)
-		if (!very_verbose)  system(stringr::str_c(c1, " 2>/dev/null"))
+    cat_status <- 0
+    if ( very_verbose)  cat_status <- system(c1)
+    if (!very_verbose)  cat_status <- system(stringr::str_c(c1, " 2>/dev/null"))
+    if (cat_status != 0)  cli::cli_abort("cat-bgen failed while concatenating per-chromosome BGEN files. Try with `very_verbose=TRUE` to see terminal output.")
 		for (f in bgen_files)  system(stringr::str_c("rm -f ", f, " ", f, ".bgi"))
 	}
 
