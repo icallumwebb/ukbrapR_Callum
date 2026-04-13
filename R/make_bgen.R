@@ -102,6 +102,7 @@ make_imputed_bgen <- function(
 
   bgen_files      <- character(0)
   bgen_file_chr   <- character(0)
+  ref_sample_n    <- NA_integer_
   sample_file_path <- NULL
 
   # loop over files...
@@ -151,17 +152,34 @@ make_imputed_bgen <- function(
     n_rows <- as.integer(system("wc -l < _ukbrapr_tmp_list.txt", intern=TRUE))
     system("rm _ukbrapr_tmp_list.txt")
 
+    # sample file for this chromosome
+    this_sample_path <- stringr::str_replace_all(
+      stringr::str_c("/mnt/project/Bulk/Imputation/UKB\\ imputation\\ from\\ genotype/ukb22828_c", chr, "_b0_v3.sample"),
+      stringr::fixed("\\"), ""
+    )
+
+    # sample count check to keep cat-bgen-compatible chromosomes only
+    this_sample_lines <- as.integer(system(stringr::str_c("wc -l < ", shQuote(this_sample_path)), intern=TRUE))
+    this_sample_n <- this_sample_lines - 2L
+    if (is.na(ref_sample_n))  ref_sample_n <- this_sample_n
+
     # if no variants in the BGEN (nrow of list file <=3) then skip this CHR
     n_variants_chr <- max(0L, n_rows - 3L)  # bgenix list has 3 header/footer lines
     if (n_rows > 3)  {
+      # Skip chromosomes with different sample counts (e.g., chrX in UKB imputed)
+      if (!is.na(this_sample_n) && !is.na(ref_sample_n) && this_sample_n != ref_sample_n)  {
+        cli::cli_warn(stringr::str_c("Skipping CHR ", chr, ": sample count ", this_sample_n, " differs from autosomal reference ", ref_sample_n, "."))
+        system(stringr::str_c("rm -f ", tmp_bgen, " ", tmp_bgen, ".bgi"))
+        system("rm -f _ukbrapr_tmp_range.txt _ukbrapr_tmp_rsids.txt")
+        if (progress)  cli::cli_alert_info(stringr::str_c("Extracted from imputed BGEN ", ii, " of ", n_chrs, " [", prettyunits::pretty_sec(as.numeric(difftime(Sys.time(), chr_time, units=\"secs\"))), "]"))
+        next
+      }
+
       bgen_files <- c(bgen_files, tmp_bgen)
       bgen_file_chr <- c(bgen_file_chr, as.character(chr))
       if (verbose) cli::cli_alert_info(stringr::str_c("CHR ", chr, ": extracted ", n_variants_chr, " of ", nrow(varlist_sub), " requested variants"))
       if (is.null(sample_file_path))  {
-        sample_file_path <- stringr::str_replace_all(
-          stringr::str_c("/mnt/project/Bulk/Imputation/UKB\\ imputation\\ from\\ genotype/ukb22828_c", chr, "_b0_v3.sample"),
-          stringr::fixed("\\"), ""
-        )
+        sample_file_path <- this_sample_path
       }
     } else {
       if (verbose) cli::cli_alert_warning(stringr::str_c("CHR ", chr, ": 0 of ", nrow(varlist_sub), " requested variants found in imputed BGEN"))
