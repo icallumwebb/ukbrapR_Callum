@@ -355,6 +355,8 @@ create_pgs <- function(
       n_comp_match <- 0
       n_pos_fallback <- 0
       n_unmatched <- 0
+      matched_to_genotype <- rep(FALSE, nrow(varlist))
+      match_method <- rep("unmatched", nrow(varlist))
 
       for (ii in 1:nrow(varlist))  {
 
@@ -376,6 +378,8 @@ create_pgs <- function(
           r_pick <- r_id
           if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
           varlist$rsid[ii] <- r_pick$id[1]
+          matched_to_genotype[ii] <- TRUE
+          match_method[ii] <- "id-match"
           n_id_match <- n_id_match + 1
           next
         }
@@ -387,6 +391,8 @@ create_pgs <- function(
           r_pick <- r_exact
           if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
           varlist$rsid[ii] <- r_pick$id[1]
+          matched_to_genotype[ii] <- TRUE
+          match_method[ii] <- "exact"
           n_exact_match <- n_exact_match + 1
           next
         }
@@ -400,6 +406,8 @@ create_pgs <- function(
             r_pick <- r_comp
             if (any(r_pick$a2 == ea_comp))  r_pick <- r_pick[r_pick$a2 == ea_comp, , drop=FALSE]
             varlist$rsid[ii] <- r_pick$id[1]
+            matched_to_genotype[ii] <- TRUE
+            match_method[ii] <- "strand-flip"
             n_comp_match <- n_comp_match + 1
             next
           }
@@ -409,8 +417,35 @@ create_pgs <- function(
         r_pick <- r
         if (any(r_pick$a2 == ea))  r_pick <- r_pick[r_pick$a2 == ea, , drop=FALSE]
         varlist$rsid[ii] <- r_pick$id[1]
+        matched_to_genotype[ii] <- TRUE
+        match_method[ii] <- "pos-fallback"
         n_pos_fallback <- n_pos_fallback + 1
 
+      }
+
+      # diagnostic reports for skipped and extra extracted variants
+      if (verbose)  {
+        missing_varlist <- varlist |>
+          dplyr::mutate(match_method=match_method) |>
+          dplyr::filter(!matched_to_genotype) |>
+          dplyr::rowwise() |>
+          dplyr::mutate(
+            missing_reason=dplyr::case_when(
+              !chr %in% unique(varinfo$chr) ~ "chromosome absent from concatenated BGEN",
+              !any(varinfo$chr == chr & varinfo$pos == pos) ~ "position absent from extracted BGEN",
+              TRUE ~ "allele mismatch or multiallelic ambiguity"
+            )
+          ) |>
+          dplyr::ungroup()
+
+        extra_extracted <- varinfo |>
+          dplyr::filter(!id %in% unique(varlist$rsid[matched_to_genotype]))
+
+        readr::write_tsv(missing_varlist, stringr::str_c(out_file, ".diagnostic_missing.txt"), progress=FALSE)
+        readr::write_tsv(extra_extracted, stringr::str_c(out_file, ".diagnostic_extra_extracted.txt"), progress=FALSE)
+
+        cli::cli_alert_info("Wrote missing variant report to {.file {stringr::str_c(out_file, '.diagnostic_missing.txt')}}")
+        cli::cli_alert_info("Wrote extra extracted variant report to {.file {stringr::str_c(out_file, '.diagnostic_extra_extracted.txt')}}")
       }
 
       if (verbose)  {
