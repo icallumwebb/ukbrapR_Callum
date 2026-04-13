@@ -171,7 +171,7 @@ make_imputed_bgen <- function(
         cli::cli_warn(stringr::str_c("Skipping CHR ", chr, ": sample count ", this_sample_n, " differs from autosomal reference ", ref_sample_n, "."))
         system(stringr::str_c("rm -f ", tmp_bgen, " ", tmp_bgen, ".bgi"))
         system("rm -f _ukbrapr_tmp_range.txt _ukbrapr_tmp_rsids.txt")
-        if (progress)  cli::cli_alert_info(stringr::str_c("Extracted from imputed BGEN ", ii, " of ", n_chrs, " [", prettyunits::pretty_sec(as.numeric(difftime(Sys.time(), chr_time, units=\"secs\"))), "]"))
+        if (progress)  cli::cli_alert_info(stringr::str_c("Extracted from imputed BGEN ", ii, " of ", n_chrs, " [", prettyunits::pretty_sec(as.numeric(difftime(Sys.time(), chr_time, units="secs"))), "]"))
         next
       }
 
